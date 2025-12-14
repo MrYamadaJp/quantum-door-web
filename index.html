@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Quantum Door</title>
 
+  <!-- Turnstile -->
+  <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+
   <style>
     :root{
       --bg:#0b0b10;
@@ -15,56 +18,62 @@
     }
     *{box-sizing:border-box}
     body{
-      font-family:system-ui, -apple-system, Segoe UI, sans-serif;
+      font-family:system-ui,-apple-system,Segoe UI,sans-serif;
       background:var(--bg); color:var(--text);
       margin:0; min-height:100vh;
       display:grid; place-items:center;
     }
-    .wrap{width:min(860px, 94vw); display:grid; gap:16px;}
-    h1{margin:0; font-size:22px;}
-    .sub{color:var(--muted); font-size:13px; margin-top:-8px;}
+    .wrap{width:min(860px,94vw);display:grid;gap:16px;}
+    h1{margin:0;font-size:22px;font-weight:700;}
+    .sub{color:var(--muted);font-size:13px;margin-top:-8px;}
     .hidden{display:none;}
 
     .stage{
       position:relative;
-      height:min(520px, 62vh);
+      height:min(520px,62vh);
       border:1px solid var(--line);
       border-radius:22px;
       background:radial-gradient(1200px 600px at 50% 30%, #171726, #0b0b10);
-      display:grid; place-items:center;
+      display:grid;place-items:center;
+      overflow:hidden;
     }
     .hint{
-      position:absolute; top:14px; left:14px;
-      padding:6px 10px; font-size:12px;
-      color:var(--muted); border:1px solid var(--line);
-      border-radius:999px;
+      position:absolute;top:14px;left:14px;
+      padding:6px 10px;border-radius:999px;
+      font-size:12px;color:var(--muted);
+      border:1px solid var(--line);
       background:rgba(18,18,26,.6);
     }
 
     .doorBtn{
-      border:0; background:none; cursor:pointer;
-      width:min(330px,70vw); height:min(420px,52vh);
+      border:0;background:transparent;cursor:pointer;
+      width:min(330px,70vw);
+      height:min(420px,52vh);
       position:relative;
     }
     .frame{
-      position:absolute; inset:0;
-      border-radius:22px;
+      position:absolute;inset:0;border-radius:22px;
       border:2px solid #3a3a52;
+      background:linear-gradient(180deg,#12121c,#0f0f16);
     }
     .inside{
-      position:absolute; inset:18px;
-      border-radius:16px;
-      background:#000; opacity:0;
-      transition:opacity .2s;
+      position:absolute;inset:18px;border-radius:16px;
+      background:radial-gradient(700px 420px at 50% 35%, #0b0b10,#000);
+      opacity:0;transition:opacity .25s ease;
     }
     .door{
-      position:absolute; inset:18px;
-      border-radius:16px;
-      background:#1b1b28;
+      position:absolute;inset:18px;border-radius:16px;
       transform-origin:left center;
-      transition:transform .5s;
+      background:linear-gradient(180deg,#2a2a3a,#181824);
+      transition:transform .5s cubic-bezier(.2,.8,.2,1);
     }
-    .doorBtn.opened .door{transform:perspective(900px) rotateY(-70deg);}
+    .knob{
+      position:absolute;right:22px;top:50%;
+      width:18px;height:18px;border-radius:50%;
+      background:linear-gradient(#c9b36a,#7a6a32);
+      transform:translateY(-50%);
+    }
+    .doorBtn.opened .door{transform:perspective(900px) rotateY(-68deg);}
     .doorBtn.opened .inside{opacity:1;}
     .doorBtn.opened{pointer-events:none;}
 
@@ -74,23 +83,26 @@
       background:var(--panel);
       padding:14px 16px;
     }
-    #out{font-size:20px;}
-    #meta{font-size:12px;color:var(--muted);}
-    .addPanel{display:none;gap:10px;}
+    .addPanel{display:none;gap:12px;}
     .addPanel.show{display:grid;}
-
-    input,button{
-      padding:12px;border-radius:14px;
+    input{
+      width:100%;padding:12px;border-radius:14px;
       border:1px solid var(--line);
       background:#0f0f16;color:var(--text);
     }
-    button{cursor:pointer;}
+    button{
+      padding:12px;border-radius:14px;
+      background:#1a1a26;color:var(--text);
+      border:1px solid var(--line);
+      cursor:pointer;
+    }
+    .tiny{font-size:12px;color:var(--muted);}
   </style>
 </head>
 
 <body>
 <div class="wrap">
-  <h1>🚪 量子的ドア</h1>
+  <h1>🚪 Quantum Door</h1>
   <div class="sub">クリック＝観測。観測するまで、世界は確定しない。</div>
 
   <div class="stage">
@@ -98,132 +110,87 @@
     <button id="doorBtn" class="doorBtn">
       <div class="frame"></div>
       <div class="inside"></div>
-      <div class="door"></div>
+      <div class="door"><div class="knob"></div></div>
     </button>
   </div>
 
   <div class="result hidden" id="resultBox">
     <b>観測結果</b>
     <div id="out"></div>
-    <small id="meta"></small>
   </div>
 
   <div class="addPanel" id="addPanel">
     <b>観測結果を追加（共有）</b>
-    <input id="inp" maxlength="60" placeholder="例：静寂 / 世界線が確定した" />
+
+    <input id="inp" maxlength="100" placeholder="観測結果を入力" />
+
+    <!-- Turnstile -->
+    <div class="cf-turnstile"
+      data-sitekey="0x4AAAAAACGlYHwu67S0acHg"
+      data-theme="dark">
+    </div>
+
     <button id="add">追加</button>
+    <div class="tiny">※ 追加は1日1回。追加後は再表示されません。</div>
   </div>
 </div>
 
 <script>
-/* ===== Worker API ===== */
 const API_BASE = "https://quantum-door-api.hinomaru705.workers.dev";
+const ADDED_KEY = "quantumDoor.added.v1";
 
-/* ===== 基本候補 ===== */
-const base = [
-  "静寂"
-];
-
-/* ===== localStorage keys ===== */
-const OBS_KEY_DAY = "quantumDoor.observedDayJST.v1";
-const OBS_KEY_RESULT = "quantumDoor.observedResult.v1";
-const ADD_KEY_DAY = "quantumDoor.addedDayJST.v1";
-const USER_KEY = "quantumDoor.userOutcomes.v1";
-
-/* ===== util ===== */
-const loadUser = () => JSON.parse(localStorage.getItem(USER_KEY) || "[]");
-const saveUser = a => localStorage.setItem(USER_KEY, JSON.stringify(a));
-const pick = a => a[Math.floor(Math.random()*a.length)];
-const todayJST = () =>
-  new Date(Date.now() + 9*60*60*1000).toISOString().slice(0,10);
-
-/* ===== API ===== */
-async function fetchShared(){
-  const r = await fetch(`${API_BASE}/pool?limit=200`);
-  const j = await r.json().catch(()=>null);
-  return (r.ok && j?.ok && Array.isArray(j.outcomes)) ? j.outcomes : [];
-}
-async function submitShared(text){
-  const r = await fetch(`${API_BASE}/submit`,{
-    method:"POST",
-    headers:{ "Content-Type":"application/json" },
-    body:JSON.stringify({ text })
-  });
-  const j = await r.json().catch(()=>null);
-  return !!(r.ok && j?.ok);
-}
-
-/* ===== UI ===== */
-const door = document.getElementById("doorBtn");
+const doorBtn = document.getElementById("doorBtn");
 const out = document.getElementById("out");
-const meta = document.getElementById("meta");
 const hint = document.getElementById("hint");
 const addPanel = document.getElementById("addPanel");
 const resultBox = document.getElementById("resultBox");
 const inp = document.getElementById("inp");
 
-function showObserved(resultText, metaText){
-  door.classList.add("opened");
-  door.setAttribute("aria-disabled","true");
-  resultBox.classList.remove("hidden");
-  addPanel.classList.add("show");
-  out.textContent = resultText;
-  meta.textContent = metaText || "";
+let observed = false;
+
+async function observe(){
+  if(observed) return;
+  observed = true;
+
+  const r = await fetch(API_BASE + "/pool")
+    .then(r=>r.json()).then(j=>j.outcomes[0]);
+
+  doorBtn.classList.add("opened");
   hint.textContent = "観測は完了しました";
+
+  out.textContent = r;
+  resultBox.classList.remove("hidden");
+
+  if(!localStorage.getItem(ADDED_KEY)){
+    addPanel.classList.add("show");
+  }
 }
 
-/* ===== 初期表示（再訪時） ===== */
-(function init(){
-  const today = todayJST();
-  const day = localStorage.getItem(OBS_KEY_DAY);
-  const res = localStorage.getItem(OBS_KEY_RESULT);
-  const added = localStorage.getItem(ADD_KEY_DAY);
+doorBtn.addEventListener("click", observe);
 
-  if(day === today && res){
-    showObserved(res, "（この端末は今日すでに観測済み）");
-    if(added === today){
-      addPanel.classList.remove("show");
-    }
-  }
-})();
-
-/* ===== 観測 ===== */
-door.onclick = async () => {
-  const today = todayJST();
-  const day = localStorage.getItem(OBS_KEY_DAY);
-  const res = localStorage.getItem(OBS_KEY_RESULT);
-
-  if(day === today && res){
-    showObserved(res, "（この端末は今日すでに観測済み）");
-    return;
-  }
-
-  const shared = await fetchShared();
-  const user = loadUser();
-  const list = [...new Set([...base, ...user, ...shared].map(s => s.trim()))];
-  const r = pick(list);
-
-  localStorage.setItem(OBS_KEY_DAY, today);
-  localStorage.setItem(OBS_KEY_RESULT, r);
-
-  showObserved(r, `候補数 ${list.length}`);
-};
-
-/* ===== 追加（1日1回） ===== */
-document.getElementById("add").onclick = async () => {
+document.getElementById("add").addEventListener("click", async ()=>{
   const v = inp.value.trim();
   if(!v) return;
 
-  const u = loadUser(); u.push(v); saveUser(u);
-  const ok = await submitShared(v);
+  const tokenInput = document.querySelector(
+    'input[name="cf-turnstile-response"]'
+  );
+  const token = tokenInput ? tokenInput.value : "";
 
-  out.textContent = ok
-    ? `共有に追加しました：${v}`
-    : `追加しました（共有は失敗）：${v}`;
+  const res = await fetch(API_BASE + "/submit", {
+    method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({ text:v, turnstileToken:token })
+  });
 
-  localStorage.setItem(ADD_KEY_DAY, todayJST());
-  addPanel.classList.remove("show");
-};
+  if(res.ok){
+    localStorage.setItem(ADDED_KEY,"1");
+    addPanel.remove();
+    out.textContent = "共有に追加されました。";
+  }else{
+    out.textContent = "送信に失敗しました。";
+  }
+});
 </script>
 </body>
 </html>
