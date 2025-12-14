@@ -96,7 +96,7 @@
       border:1px solid var(--line);
       cursor:pointer;
     }
-    .tiny{font-size:12px;color:var(--muted);}
+    .tiny{font-size:12px;color:var(--muted);line-height:1.4;}
   </style>
 </head>
 
@@ -107,7 +107,7 @@
 
   <div class="stage">
     <div class="hint" id="hint">ドアをクリックして観測</div>
-    <button id="doorBtn" class="doorBtn">
+    <button id="doorBtn" class="doorBtn" aria-label="観測するドア">
       <div class="frame"></div>
       <div class="inside"></div>
       <div class="door"><div class="knob"></div></div>
@@ -117,78 +117,180 @@
   <div class="result hidden" id="resultBox">
     <b>観測結果</b>
     <div id="out"></div>
+    <small class="tiny" id="meta"></small>
   </div>
 
   <div class="addPanel" id="addPanel">
     <b>観測結果を追加（共有）</b>
 
-    <input id="inp" maxlength="100" placeholder="観測結果を入力" />
+    <input id="inp" maxlength="100" placeholder="観測結果を入力（1〜100文字）" />
 
-    <!-- Turnstile -->
-    <div class="cf-turnstile"
-      data-sitekey="0x4AAAAAACGlYHwu67S0acHg"
-      data-theme="dark">
-    </div>
+    <!-- Turnstileは後から表示されるので手動renderする -->
+    <div id="tsMount"></div>
 
     <button id="add">追加</button>
-    <div class="tiny">※ 追加は1日1回。追加後は再表示されません。</div>
+    <div class="tiny">※ 追加は「この端末で日本時間1日1回」。追加後は翌日まで再表示されません。</div>
   </div>
 </div>
 
 <script>
+/* ====== 設定 ====== */
 const API_BASE = "https://quantum-door-api.hinomaru705.workers.dev";
-const ADDED_KEY = "quantumDoor.added.v1";
+const TURNSTILE_SITE_KEY = "0x4AAAAAACGlYHwu67S0acHg";
 
+/* ====== localStorage keys ====== */
+const OBS_KEY_DAY = "quantumDoor.observedDayJST.v1";
+const OBS_KEY_RESULT = "quantumDoor.observedResult.v1";
+const ADD_KEY_DAY = "quantumDoor.addedDayJST.v1";
+
+/* ====== util ====== */
+const todayJST = () => new Date(Date.now() + 9*60*60*1000).toISOString().slice(0,10);
+
+/* ====== UI refs ====== */
 const doorBtn = document.getElementById("doorBtn");
 const out = document.getElementById("out");
+const meta = document.getElementById("meta");
 const hint = document.getElementById("hint");
 const addPanel = document.getElementById("addPanel");
 const resultBox = document.getElementById("resultBox");
 const inp = document.getElementById("inp");
+const tsMount = document.getElementById("tsMount");
+const addBtn = document.getElementById("add");
 
-let observed = false;
+let turnstileWidgetId = null;
 
-async function observe(){
-  if(observed) return;
-  observed = true;
+/* ====== Turnstile描画（後から表示されるので手動） ====== */
+function renderTurnstileIfNeeded(){
+  // すでに今日追加済みなら出さない
+  if (localStorage.getItem(ADD_KEY_DAY) === todayJST()) return;
 
-  const r = await fetch(API_BASE + "/pool")
-    .then(r=>r.json()).then(j=>j.outcomes[0]);
+  // Turnstileライブラリがまだ読み込み中なら少し待って再試行
+  if (!window.turnstile) {
+    setTimeout(renderTurnstileIfNeeded, 300);
+    return;
+  }
 
+  // 既に描画済みならreset
+  if (turnstileWidgetId !== null) {
+    try { window.turnstile.reset(turnstileWidgetId); } catch {}
+    return;
+  }
+
+  // 初回描画
+  tsMount.innerHTML = "";
+  turnstileWidgetId = window.turnstile.render(tsMount, {
+    sitekey: TURNSTILE_SITE_KEY,
+    theme: "dark"
+  });
+}
+
+/* ====== 観測表示 ====== */
+function showObserved(resultText, metaText){
   doorBtn.classList.add("opened");
-  hint.textContent = "観測は完了しました";
-
-  out.textContent = r;
+  doorBtn.setAttribute("aria-disabled","true");
   resultBox.classList.remove("hidden");
+  out.textContent = resultText;
+  meta.textContent = metaText || "";
+  hint.textContent = "観測は完了しました";
+}
 
-  if(!localStorage.getItem(ADDED_KEY)){
+/* ====== 初期：今日すでに観測していたら開きっぱなし ====== */
+(function init(){
+  const t = todayJST();
+  const d = localStorage.getItem(OBS_KEY_DAY);
+  const r = localStorage.getItem(OBS_KEY_RESULT);
+  const added = localStorage.getItem(ADD_KEY_DAY);
+
+  if (d === t && r) {
+    showObserved(r, "（この端末は今日すでに観測済み）");
+
+    // 追加は「今日未実施」なら出す
+    if (added !== t) {
+      addPanel.classList.add("show");
+      renderTurnstileIfNeeded();
+    }
+  }
+})();
+
+/* ====== 観測（/poolから候補を取ってランダムに1つ） ====== */
+async function observe(){
+  const t = todayJST();
+  const d = localStorage.getItem(OBS_KEY_DAY);
+  const r = localStorage.getItem(OBS_KEY_RESULT);
+
+  if (d === t && r) {
+    showObserved(r, "（この端末は今日すでに観測済み）");
+    // 追加UIの表示判定
+    if (localStorage.getItem(ADD_KEY_DAY) !== t) {
+      addPanel.classList.add("show");
+      renderTurnstileIfNeeded();
+    }
+    return;
+  }
+
+  const poolRes = await fetch(`${API_BASE}/pool?limit=200`);
+  const poolJson = await poolRes.json();
+  const list = Array.isArray(poolJson?.outcomes) ? poolJson.outcomes : [];
+  const pick = list.length ? list[Math.floor(Math.random()*list.length)] : "沈黙";
+
+  localStorage.setItem(OBS_KEY_DAY, t);
+  localStorage.setItem(OBS_KEY_RESULT, pick);
+
+  showObserved(pick, `候補数 ${list.length || 1}`);
+
+  // 追加UI（今日未追加なら表示）
+  if (localStorage.getItem(ADD_KEY_DAY) !== t) {
     addPanel.classList.add("show");
+    renderTurnstileIfNeeded();
   }
 }
 
 doorBtn.addEventListener("click", observe);
 
-document.getElementById("add").addEventListener("click", async ()=>{
+/* ====== 追加（Turnstile tokenを添付して /submit） ====== */
+addBtn.addEventListener("click", async () => {
   const v = inp.value.trim();
-  if(!v) return;
+  if (!v) return;
 
-  const tokenInput = document.querySelector(
-    'input[name="cf-turnstile-response"]'
-  );
-  const token = tokenInput ? tokenInput.value : "";
+  // 今日追加済みなら即終了（念のため）
+  if (localStorage.getItem(ADD_KEY_DAY) === todayJST()) {
+    addPanel.classList.remove("show");
+    out.textContent = "（今日はすでに追加済み）";
+    return;
+  }
 
-  const res = await fetch(API_BASE + "/submit", {
+  // Turnstile応答取得
+  let token = "";
+  try {
+    if (window.turnstile && turnstileWidgetId !== null) {
+      token = window.turnstile.getResponse(turnstileWidgetId) || "";
+    }
+  } catch {}
+
+  if (!token) {
+    out.textContent = "認証が完了していません（Turnstile）。";
+    return;
+  }
+
+  const res = await fetch(`${API_BASE}/submit`, {
     method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({ text:v, turnstileToken:token })
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ text: v, turnstileToken: token })
   });
 
-  if(res.ok){
-    localStorage.setItem(ADDED_KEY,"1");
-    addPanel.remove();
-    out.textContent = "共有に追加されました。";
-  }else{
-    out.textContent = "送信に失敗しました。";
+  const j = await res.json().catch(()=>null);
+
+  if (res.ok && j?.ok) {
+    // 今日追加済みを記録 → 翌日まで出さない
+    localStorage.setItem(ADD_KEY_DAY, todayJST());
+
+    // UIを消す（更新しても復活しない）
+    addPanel.classList.remove("show");
+    out.textContent = `共有に追加しました：${v}`;
+  } else {
+    out.textContent = j?.error ? `送信に失敗：${j.error}` : "送信に失敗しました。";
+    // 次の挑戦のためにTurnstileをリセット
+    try { window.turnstile.reset(turnstileWidgetId); } catch {}
   }
 });
 </script>
